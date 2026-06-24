@@ -4,8 +4,19 @@ require 'ffi'
 
 module FFIGen::Clang
   extend FFI::Library
-  ffi_lib ['clang-3.9', 'clang-3.5','clang', "libclang-3.5.so.1", "libclang.so.1"]
-  
+
+  # Same lookup ruby-llvm's ext/ruby-llvm-support/Rakefile#find_llvm_config
+  # uses: ENV override first, then bare llvm-config on PATH.
+  llvm_config = ENV['LLVM_CONFIG'] || 'llvm-config'
+  llvm_version_major = begin
+    `#{llvm_config} --version`.strip.split('.').first
+  rescue Errno::ENOENT
+    nil
+  end
+
+  ffi_lib [*(["libclang-#{llvm_version_major}.so.1"] if llvm_version_major),
+           'clang-3.9', 'clang-3.5', 'clang', "libclang-3.5.so.1", "libclang.so.1"]
+
   def self.attach_function(name, *_)
     begin; super; rescue FFI::NotFoundError => e
       (class << self; self; end).class_eval { define_method(name) { |*_| raise e } }
