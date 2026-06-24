@@ -370,7 +370,6 @@ class FFIGen
 
       constants = []
       previous_constant_location = Clang.get_cursor_location declaration_cursor
-      next_constant_value = 0
       Clang.get_children(declaration_cursor).each do |enum_constant|
         constant_name = read_name enum_constant
         next if constant_name.nil?
@@ -381,40 +380,11 @@ class FFIGen
         constant_description.concat(constant_descriptions[constant_name.raw] || [])
         previous_constant_location = constant_location
 
-        begin
-          value_cursor = Clang.get_children(enum_constant).first
-          constant_value = if value_cursor
-            parts = []
-            Clang.get_tokens(translation_unit, Clang.get_cursor_extent(value_cursor)).each do |token|
-              spelling = Clang.get_token_spelling(translation_unit, token).to_s_and_dispose
-              case Clang.get_token_kind(token)
-              when :literal
-                parts << spelling
-              when :punctuation
-                case spelling
-                when "+", "-", "<<", ">>", "(", ")"
-                  parts << spelling
-                else
-                  raise ArgumentError
-                end
-              else
-                raise ArgumentError
-              end
-            end
-            eval parts.join
-          else
-            next_constant_value
-          end
-
-          if constant_value.nil?
-              puts "Warning: Could not process constant_value.nil of enum constant \"#{constant_name.raw}\""
-            else
-              constants << { name: constant_name, value: constant_value, comment: constant_description }
-              next_constant_value = constant_value + 1
-            end
-        rescue ArgumentError
-          puts "Warning: Could not process value of enum constant \"#{constant_name.raw}\""
-        end
+        # Ask clang for the already-computed value directly (handles
+        # explicit/implicit/negative/suffixed/hex values uniformly) instead
+        # of reconstructing and eval-ing the initializer's source tokens.
+        constant_value = Clang.get_enum_constant_decl_value(enum_constant)
+        constants << { name: constant_name, value: constant_value, comment: constant_description }
       end
 
       Enum.new self, name, constants, enum_description
@@ -589,7 +559,7 @@ class FFIGen
               when ","
                 value << ", "
               when "("
-                if tokens[1][1] == ")"
+                if tokens[1] && tokens[1][1] == ")"
                   tokens.delete_at 1
                 else
                   value << spelling
