@@ -157,7 +157,10 @@ class FFIGen
         writer.puts "@scope class"
       end
 
-      ffi_signature = "[#{@parameters.map{ |parameter| parameter[:type].ruby_ffi_type }.join(', ')}], #{@return_type.ruby_ffi_type}"
+      return_ffi_type = @return_type.ruby_ffi_type
+      # FFI callbacks can't return :string (unlike regular attach_function)
+      return_ffi_type = ":pointer" if @is_callback && return_ffi_type == ":string"
+      ffi_signature = "[#{@parameters.map{ |parameter| parameter[:type].ruby_ffi_type }.join(', ')}], #{return_ffi_type}"
       if @is_callback
         writer.puts "callback :#{ruby_name}, #{ffi_signature}", ""
       else

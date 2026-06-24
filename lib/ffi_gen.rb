@@ -28,7 +28,12 @@ class FFIGen
       Clang.tokenize translation_unit, range, tokens_ptr_ptr, num_tokens_ptr
       num_tokens = num_tokens_ptr.read_uint
       tokens_ptr = FFI::Pointer.new Clang::Token, tokens_ptr_ptr.read_pointer
-      (num_tokens - 1).times.map { |i| Clang::Token.new tokens_ptr[i] }
+      # Used to drop the last token (num_tokens - 1) as a workaround for an
+      # old clang_tokenize quirk (an extra spurious trailing token past the
+      # requested range); current clang doesn't do that, and dropping it
+      # was truncating real, wanted tokens (e.g. the closing ")" of a call,
+      # or the digit after a unary "-").
+      num_tokens.times.map { |i| Clang::Token.new tokens_ptr[i] }
     end
   end
 
@@ -559,7 +564,7 @@ class FFIGen
               when ","
                 value << ", "
               when "("
-                if tokens[1] && tokens[1][1] == ")"
+                if tokens[1][1] == ")"
                   tokens.delete_at 1
                 else
                   value << spelling
@@ -654,7 +659,18 @@ class FFIGen
               #param_name ||= Name.new ['arg', i.to_s]
               parameters << { name:param_name, type: param_type, description: [] }
             end
-            return FunctionOrCallback.new self, field_name, parameters, return_type, true, false, nil, []
+            # field_name is nil for callback parameters nested inside another
+            # callback's signature (the recursive resolve_type call below
+            # doesn't thread a field name through); fall back to a unique
+            # placeholder so this anonymous callback type still gets a name.
+            name = field_name || Name.new(['callback', @declarations.size.to_s])
+            callback = FunctionOrCallback.new self, name, parameters, return_type, true, false, [], []
+            # Register it like read_declaration would, so it's actually
+            # written out (callback :name, [...] for FFI to resolve) and
+            # reused (not regenerated under a new name) if seen again.
+            @declarations << callback
+            @declarations_by_type[full_type] = callback
+            return callback
           end
           @declarations_by_type[full_type]
         else
@@ -694,7 +710,8 @@ class FFIGen
     when :enum
       @declarations_by_type[canonical_type] || UnknownType.new # TODO
     when :constant_array
-      ArrayType.new resolve_type(Clang.get_array_element_type(canonical_type)), Clang.get_array_size(canonical_type)
+      # is_array means a function parameter, which C decays to a pointer regardless of size
+      ArrayType.new resolve_type(Clang.get_array_element_type(canonical_type)), (is_array ? nil : Clang.get_array_size(canonical_type))
     when :unexposed, :function_proto, :function_no_proto
       UnknownType.new
     when :incomplete_array

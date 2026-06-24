@@ -14,8 +14,7 @@ module FFIGen::Clang
     nil
   end
 
-  ffi_lib [*(["libclang-#{llvm_version_major}.so.1"] if llvm_version_major),
-           'clang-3.9', 'clang-3.5', 'clang', "libclang-3.5.so.1", "libclang.so.1"]
+  ffi_lib [*(["libclang-#{llvm_version_major}.so.1"] if llvm_version_major), 'clang', 'libclang.so.1']
 
   def self.attach_function(name, *_)
     begin; super; rescue FFI::NotFoundError => e

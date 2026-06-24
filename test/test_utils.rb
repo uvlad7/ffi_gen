@@ -1,6 +1,13 @@
 require "fileutils"
 require "ffi_gen"
 
+module FFI::Library
+  alias_method :real_ffi_lib, :ffi_lib
+  def ffi_lib(*)
+    real_ffi_lib(FFI::CURRENT_PROCESS)
+  end
+end
+
 def find_headers(dir, prefix = "")
   Dir.chdir dir do
     return Dir.glob("#{prefix}**/*.h")
